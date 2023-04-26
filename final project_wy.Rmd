@@ -1,0 +1,550 @@
+---
+title: "final project"
+author: "Jiaxin Wu"
+date: "2023-04-12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(deSolve)
+library(tidyverse)
+```
+
+
+### Simulation 1
+```{r sim1}
+SIRvec <- function(t, state, parameters) {
+  with(as.list(c(state, parameters)), {
+    
+    #Host population
+    dSH = NH/TLH - SH*((cVH*IV/NH)+(1/TLH))
+    dEH = SH*cVH*(IV/NH) - EH*((1/TIIT)+(1/TLH))
+    dIH = EH/TIIT - IH*((1/TID)+(1/TLH))
+    dRH = IH/TID - RH/TLH
+    
+    #Vector population
+    dSV = e - SV*(cHV*(IH+IHvisit)/NH + (1/TLV))
+    dEV = SV*(cHV*(IH+IHvisit)/NH) - EV*((1/TEIT)+(1/TLV))
+    dIV = EV/TEIT - IV/TLV
+    
+    dcumi = EH/TIIT
+    
+    list(c(dSH,dEH,dIH,dRH,dSV,dEV,dIV,dcumi))
+  })
+}
+
+
+# Initial states and parameters
+cHV=0.375
+cVH=0.75
+TLH=25002.5
+TLV=4
+TIIT=5
+TEIT=10
+TID=3
+e=5000
+
+SH=10000
+EH=0
+IH=0
+RH=0
+SV=19999
+EV=0
+IV=1
+IHvisit=0
+NH=SH+EH+IH+RH
+NV=SV+EV+IV
+
+parameters = c( cHV=cHV, cVH=cVH,
+                TLH=TLH, TLV=TLV,
+                TIIT=TIIT, TEIT=TEIT,
+                TID=TID, e=5000, IHvisit=IHvisit)
+
+state = c(SH = SH, EH = EH, IH = IH, RH = RH, SV = SV, EV = EV, IV = IV,cumi=0)
+
+times=1:365;
+
+sim1=ode(times=times,func=SIRvec,y=state,parms=parameters)
+
+#prevalence peak without fogging and cumulative incidence 
+which.max(sim1[,"IH"])
+tail(sim1[,"cumi"],1)
+
+prevalence=matrix(0,364,364)
+cumulated_i=matrix(0,364,364)
+
+for (i in 2:364) {
+  times1=1:i; 
+  times2=i:365; 
+  
+  simNoCtrl=ode(times=times1,func=SIRvec,y=state,parms=parameters);
+  state2=c(SH=tail(simNoCtrl[,'SH'],1),EH=tail(simNoCtrl[,'EH'],1),
+           IH=tail(simNoCtrl[,'IH'],1),RH=tail(simNoCtrl[,'RH'],1),
+           SV=tail(simNoCtrl[,'SV'],1)*0.4,
+           EV=0.4*tail(simNoCtrl[,'EV'],1),
+           IV=0.4*tail(simNoCtrl[,'IV'],1),
+           cumi=tail(simNoCtrl[,'cumi'],1));
+  simCtrl=ode(times=times2,func=SIRvec,y=state2,parms=parameters);
+  sim=rbind(simNoCtrl[-1,],simCtrl[-1,])
+  prevalence[,i]=sim[,'IH']
+  cumulated_i[,i]=sim[,"cumi"]
+}
+
+# prevalence peak day with fogging and cumulative incidence 
+which.min(tail(cumulated_i[,2:364],1))
+min(tail(cumulated_i[,2:364],1))
+# 7121.874 vs Table 2 7120. => similar
+
+
+matplot(sim1[,'time'], sim1[,"IH"], type='l',xlim = c(0,365),
+        lwd = 1, lty = 1, cex.main=1,
+        ylab = 'Prevalence',xlab = 'Time(days)')
+lines(1:364, y=prevalence[,168], type = 'l',col="red")
+legend("topright",legend=c('without fogging', 'with fogging'),col=c('black', 'red'), lty=1)
+
+```
+
+
+### simulation 2
+```{r sim2}
+times <- 1:365
+
+wetseason=c(1:150);  # the days in a year that are wetseason
+Term=rep(3,length(times));  # initialize a vector to store the Term
+ind=(1:length(Term) %% 365) %in% wetseason  # find those days that are wetseason
+Term[ind]=4; # set them to 4
+
+
+# Modify SIRvec function
+SIRseason <- function(time, state, parameters) {
+  with(as.list(c(state, parameters)), {
+    
+    #TLV value changes based on time 
+    TLV = Term[time]
+        
+    #Host population
+    dSH = NH/TLH - SH*((cVH*IV/NH)+(1/TLH))
+    dEH = SH*cVH*(IV/NH) - EH*((1/TIIT)+(1/TLH))
+    dIH = EH/TIIT - IH*((1/TID)+(1/TLH))
+    dRH = IH/TID - RH/TLH
+    
+    #Vector population
+    dSV = e - SV*(cHV*(IH+IHvisit)/NH + (1/TLV))
+    dEV = SV*(cHV*(IH+IHvisit)/NH) - EV*((1/TEIT)+(1/TLV))
+    dIV = EV/TEIT - IV/TLV
+    
+    dcumi = EH/TIIT
+    
+    list(c(dSH,dEH,dIH,dRH,dSV,dEV,dIV,dcumi))
+  })
+}
+
+
+cHV=0.375
+cVH=0.75
+TLH=25002.5
+
+
+TIIT=5
+TEIT=10
+TID=3
+e=5000
+
+SH=10000
+EH=0
+IH=0
+RH=0
+SV=19999
+EV=0
+IV=1
+IHvisit=0
+NH=SH+EH+IH+RH
+NV=SV+EV+IV
+
+parameters <- c(cHV = cHV, cVH = cVH,
+                TLH = TLH, TLV_wet = TLV_wet, TLV_dry = TLV_dry,TIIT = TIIT, TEIT = TEIT,TID = TID, e = 5000, IHvisit = IHvisit)
+
+state = c(SH = SH, EH = EH, IH = IH, RH = RH, SV = SV, EV = EV, IV = IV,cumi=0)
+
+
+sim2=ode(times=times,func=SIRseason,y=state,parms=parameters)
+
+which.max(sim2[,"IH"])
+tail(sim2[,"cumi"],1)
+
+prevalence=matrix(0,364,364)
+cumulated_i=matrix(0,364,364)
+
+for (i in 2:364) {
+  times1=1:i; 
+  times2=i:365;
+  
+  simNoCtrl=ode(times=times1,func=SIRseason,y=state,parms=parameters);
+  state2=c(SH=tail(simNoCtrl[,'SH'],1),EH=tail(simNoCtrl[,'EH'],1),
+           IH=tail(simNoCtrl[,'IH'],1),RH=tail(simNoCtrl[,'RH'],1),
+           SV=tail(simNoCtrl[,'SV'],1)*0.4,
+           EV=0.4*tail(simNoCtrl[,'EV'],1),
+           IV=0.4*tail(simNoCtrl[,'IV'],1),
+           cumi=tail(simNoCtrl[,'cumi'],1));
+  simCtrl=ode(times=times2,func=SIRseason,y=state2,parms=parameters);
+  sim=rbind(simNoCtrl[-1,],simCtrl[-1,])
+  
+  prevalence[,i]=sim[,'IH']
+  cumulated_i[,i]=sim[,"cumi"]
+}
+
+# prevalence peak day with fogging and cumulative incidence 
+which.min(tail(cumulated_i[,6:364],1))
+tail(cumulated_i[,59],1)
+
+matplot(sim2[,'time'], sim2[,"IH"], type='l',xlim = c(0,365),
+        lwd = 1, lty = 1, cex.main=1,
+        ylab = 'Prevalence',xlab = 'Time(days)')
+lines(1:364, y=prevalence[,108], type = 'l',col="red")
+legend("topright",legend=c('without fogging', 'with fogging'),col=c('black', 'red'), lty=1)
+
+
+```
+
+### Simulation 3 (part 1)
+#### before year 500
+
+```{r sim3}
+wetseason=c(1:150);  # the days in a year that are wetseason
+times=seq(1,499*365); # in day
+Term=rep(3,length(times));  # initialize a vector to store the Term
+ind=(1:length(Term) %% 365) %in% wetseason  # find those days that are wetseason
+Term[ind]=4; # set them to 4
+
+# Modify SIRvec function
+SIRseason <- function(time, state, parameters) {
+  with(as.list(c(state, parameters)), {
+
+    #TLV value changes based on time 
+    TLV = Term[time]
+    
+    #Host population
+    dSH = NH/TLH - SH*((cVH*IV/NH)+(1/TLH))
+    dEH = SH*cVH*(IV/NH) - EH*((1/TIIT)+(1/TLH))
+    dIH = EH/TIIT - IH*((1/TID)+(1/TLH))
+    dRH = IH/TID - RH/TLH
+    
+    #Vector population
+    dSV = e - SV*(cHV*(IH+IHvisit)/NH + (1/TLV))
+    dEV = SV*(cHV*(IH+IHvisit)/NH) - EV*((1/TEIT)+(1/TLV))
+    dIV = EV/TEIT - IV/TLV
+    
+    dcumi = EH/TIIT
+    
+    list(c(dSH,dEH,dIH,dRH,dSV,dEV,dIV,dcumi))
+  })
+}
+
+
+cHV=0.375
+cVH=0.75
+TLH=25002.5
+
+TIIT=5
+TEIT=10
+TID=3
+e=5000
+
+SH=10000
+EH=0
+IH=0
+RH=0
+SV=19999
+EV=0
+IV=1
+IHvisit=0.001
+NH=SH+EH+IH+RH
+NV=SV+EV+IV
+
+parameters <- c(cHV = cHV, cVH = cVH,
+                TLH = TLH,TIIT = TIIT, TEIT = TEIT,TID = TID, e = 5000, IHvisit = IHvisit)
+
+state = c(SH = SH, EH = EH, IH = IH, RH = RH, SV = SV, EV = EV, IV = IV, cumi=0)
+
+sim3=ode(times=times,func=SIRseason,y=state,parms=parameters)
+plot(sim3[,"time"],sim3[,"IH"],xlab="Days",ylab="Prevalence", type = "l", ylim = c(0,3),xlim = c(498*365,499*365))
+
+```
+
+### simulation 3 (part 2)
+#### year 500 without fogging
+
+```{r}
+wetseason=c(1:150);  # the days in a year that are wetseason
+times=seq(1,365); # in day
+Term=rep(3,length(times));  # initialize a vector to store the Term
+ind=(1:length(Term) %% 365) %in% wetseason  # find those days that are wetseason
+Term[ind]=4; # set them to -1
+
+SIRseason <- function(time, state, parameters) {
+  with(as.list(c(state, parameters)), {
+    
+    #TLV value changes based on time 
+    TLV = Term[time]
+    
+    #Host population
+    dSH = NH/TLH - SH*((cVH*IV/NH)+(1/TLH))
+    dEH = SH*cVH*(IV/NH) - EH*((1/TIIT)+(1/TLH))
+    dIH = EH/TIIT - IH*((1/TID)+(1/TLH))
+    dRH = IH/TID - RH/TLH
+    
+    #Vector population
+    dSV = e - SV*(cHV*(IH+IHvisit)/NH + (1/TLV))
+    dEV = SV*(cHV*(IH+IHvisit)/NH) - EV*((1/TEIT)+(1/TLV))
+    dIV = EV/TEIT - IV/TLV
+    
+    dcumi = EH/TIIT
+    
+    list(c(dSH,dEH,dIH,dRH,dSV,dEV,dIV,dcumi))
+  })
+}
+
+
+
+parameters <- c(cHV = cHV, cVH = cVH,
+                TLH = TLH, TIIT = TIIT, TEIT = TEIT,TID = TID, e = 5000, IHvisit = IHvisit)
+
+  state1=c(SH=tail(sim3[,'SH'],1),EH=tail(sim3[,'EH'],1),
+           IH=tail(sim3[,'IH'],1),RH=tail(sim3[,'RH'],1),
+           SV=tail(sim3[,'SV'],1),EV=tail(sim3[,'EV'],1),
+           IV=tail(sim3[,'IV'],1),cumi=0);
+
+
+sim4=ode(times=times,func=SIRseason,y=state1,parms=parameters)
+
+#prevalence peak without fogging 
+which.max(sim4[,"IH"])
+#156
+
+#cumulative incidence without fogging 
+tail(sim4[,"cumi"],1)
+#28.63
+  
+plot(sim4[,"time"],sim4[,"IH"],xlab="Days",ylab="Prevalence", type = "l", ylim = c(0,3))
+
+#head imuunity cuculation 
+herd = 1-tail(sim4[,"SH"],1)/NH
+```
+
+### simulation 3 (part 2)
+#### year 500 with fogging
+
+```{r}
+prevalence=matrix(0,365,364)
+infected=matrix(0,365,364)
+cumulated_i=matrix(0,365,364)
+
+for (i in 2:364) {
+  times1=1:i; 
+  times2=i:365;
+
+  simNoCtrl=ode(times=times1,func=SIRseason,y=state1,parms=parameters);
+  state2=c(SH=tail(simNoCtrl[,'SH'],1),EH=tail(simNoCtrl[,'EH'],1),
+           IH=tail(simNoCtrl[,'IH'],1),RH=tail(simNoCtrl[,'RH'],1),
+           SV=tail(simNoCtrl[,'SV'],1)*0.4,
+           EV=0.4*tail(simNoCtrl[,'EV'],1),
+           IV=0.4*tail(simNoCtrl[,'IV'],1),
+           cumi=tail(simNoCtrl[,"cumi"],1));
+  simCtrl=ode(times=times2,func=SIRseason,y=state2,parms=parameters);
+  sim=rbind(simNoCtrl,simCtrl[-1,])
+  
+  prevalence[,i]=sim[,'IH']
+  infected[,i]=sim[,"RH"]+sim[,"IH"]
+  cumulated_i[,i]=sim[,"cumi"]
+}
+
+
+which.min(tail(infected[,2:364],1))
+#56 day fogging produce the least infected population
+min(tail(infected[,2:364],1))
+#the number of least infected = 3848.951
+
+which.min(tail(cumulated_i[,2:364],1))
+#63 day fogging produce the least infected population
+min(tail(cumulated_i[,2:364],1))
+#the number of least infected = 16.92
+
+matplot(sim4[,"time"], sim4[,"IH"], type='l',
+        lwd = 1, lty = 1, cex.main=1,ylim = c(0,3),
+        ylab = 'Prevalence',xlab = 'Time(days)')
+lines(1:365, y=prevalence[,18], type = 'l',col="red")
+legend("topright",legend=c('without fogging', 'with fogging'),col=c('black', 'red'), lty=1)
+
+
+```
+
+
+
+# simulation 4: 
+## before year 500
+```{r}
+SH=10000
+EH=0
+IH=0
+RH=0
+NH=SH+EH+IH+RH
+
+NV=c(20000,30000,50000,80000,150000)
+SV=c(19999,29999,49999,79999,149999)
+IV=1
+EV=RV=0
+
+TLH=25002.5
+TIIT=5
+TEIT=10
+e=c(5000,7500,12500,20000,37500)
+TLV_dry=3
+TLV_wet=4
+IHvisit=0.001
+TID=3
+cVH=0.75
+cHV=0.375
+
+
+wetseason=c(1:180);  # the days in a year that are wetseason
+times=seq(1,499*365); # in day
+Term=rep(3,length(times));  # initialize a vector to store the Term
+ind=(1:length(Term) %% 365) %in% wetseason  # find those days that are wetseason
+Term[ind]=4; # set them to 4
+
+SIRseason <- function(time, state, parameters) {
+  with(as.list(c(state, parameters)), {
+    
+    #TLV value changes based on time 
+    TLV = Term[time]
+    
+    #Host population
+    dSH = NH/TLH - SH*((cVH*IV/NH)+(1/TLH))
+    dEH = SH*cVH*(IV/NH) - EH*((1/TIIT)+(1/TLH))
+    dIH = EH/TIIT - IH*((1/TID)+(1/TLH))
+    dRH = IH/TID - RH/TLH
+    
+    #Vector population
+    dSV = e - SV*(cHV*(IH+IHvisit)/NH + (1/TLV))
+    dEV = SV*(cHV*(IH+IHvisit)/NH) - EV*((1/TEIT)+(1/TLV))
+    dIV = EV/TEIT - IV/TLV
+    
+    dcumi = EH/TIIT
+    
+    list(c(dSH,dEH,dIH,dRH,dSV,dEV,dIV,dcumi))
+  })
+}
+
+state_500=matrix(0,5,9)
+
+
+for (i in 1:5) {
+  parameters = c( cHV=cHV, cVH=cVH,
+                TLH=TLH, TLV_wet = TLV_wet, TLV_dry = TLV_dry,
+                TIIT=TIIT, TEIT=TEIT,
+                TID=TID, e=e[i], IHvisit=IHvisit,NV=NV[i])
+
+state = c(SH = SH, EH = EH, IH = IH, RH = RH, SV = SV[i], EV = EV, IV = IV,dcumi=0)
+
+sim4=ode(times=times,func=SIRseason,y=state,parms=parameters)
+
+state_500[i,]=tail(sim4[],1)
+
+}
+
+colnames(state_500)<-c("end","SH","EH","IH","RH","SV","EV","IV","cumi")
+rownames(state_500)<-c("2","3","5","8","15")
+
+herd = 1-state_500[,"SH"]/NH
+```
+
+###"state_500" is the initial states for the beginning of year 500 for each MPP
+
+
+## year 500 without fogging
+```{r}
+#change wetseason
+wetseason=c(1:180);
+times=seq(1,365)
+infected=matrix(0,365,5)
+prevalence=matrix(0,365,5)
+peak_without=matrix(c(2,3,5,8,15),5,2)
+cumi500=matrix(c(2,3,5,8,15),5,2)
+
+for (i in 1:5) {
+  parameters <- c(cHV = cHV, cVH = cVH,
+                TLH = TLH, TLV_wet = TLV_wet, TLV_dry = TLV_dry,TIIT = TIIT, TEIT = TEIT,TID = TID, e = e[i], IHvisit = IHvisit)
+
+  state500=c(SH=state_500[i,2],EH=state_500[i,3],
+           IH=state_500[i,4],RH=state_500[i,5],
+           SV=state_500[i,6],EV=state_500[i,7],
+           IV=state_500[i,8],cumi=0);
+  
+  sim500_0=ode(times=times,func=SIRseason,y=state500,parms=parameters)
+  prevalence[,i]=sim500_0[,'IH']
+  infected[,i]=sim500_0[,"RH"]+sim500_0[,"IH"]
+  peak_without[i,2]=which.max(prevalence[,i])
+  cumi500[i,2]=tail(sim500_0[,'cumi'],1)
+}
+
+which.max(prevalence[,2])
+
+```
+
+### "cumi500" is the cumulative incidence without fogging for year 500
+
+
+## year 500 with fogging
+```{r}
+cumulated_i=data.frame()
+out=data.frame()
+
+for (j in 1:5) {
+  
+  state500=c(SH=state_500[j,2],EH=state_500[j,3],
+           IH=state_500[j,4],RH=state_500[j,5],
+           SV=state_500[j,6],EV=state_500[j,7],
+           IV=state_500[j,8],cumi=0);
+  
+    parameters <- c(cHV = cHV, cVH = cVH,
+                TLH = TLH, TLV_wet = TLV_wet, TLV_dry = TLV_dry,TIIT = TIIT, TEIT = TEIT,TID = TID, e = e[j], IHvisit = IHvisit)
+    
+    cum_0=cumi500[j,2]
+  
+  for (i in 2:364) {
+    times1=1:i; 
+    times2=i:365;
+
+  simNoCtrl=ode(times=times1,func=SIRseason,y=state500,parms=parameters);
+  
+  state2=c(SH=tail(simNoCtrl[,2],1),EH=tail(simNoCtrl[,3],1),
+           IH=tail(simNoCtrl[,4],1),RH=tail(simNoCtrl[,5],1),
+           SV=tail(simNoCtrl[,6],1)*0.4,
+           EV=0.4*tail(simNoCtrl[,7],1),
+           IV=0.4*tail(simNoCtrl[,8],1),
+           cumi=tail(simNoCtrl[,9],1));
+  
+  simCtrl=ode(times=times2,func=SIRseason,y=state2,parms=parameters);
+  
+  sim=rbind(simNoCtrl,simCtrl[-1,])
+  cumulated_i[(i-1),j]=tail(sim[,"cumi"],1)
+  out[(i-1),j]=(cum_0-tail(sim[,"cumi"],1))/cum_0
+
+  }
+  
+    
+}
+
+out=out %>% 
+  mutate(time = 2:364) 
+
+colnames(out)=c("2","3","5","8","15","time")
+
+which.max(out[,5])+1
+cumulated_i[75,5]
+
+
+```
+
+### "out" is the percent of prevented cases for each MPP, "time" in "out" is the intervention day.
+
